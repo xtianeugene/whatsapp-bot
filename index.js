@@ -1,98 +1,52 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
-require('dotenv').config();
 
-// Initialize the client
+console.log('🚀 Starting WhatsApp Bot...');
+
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+        ]
     }
 });
 
-// Generate QR Code
 client.on('qr', (qr) => {
-    console.log('QR Code generated, scan it with your phone!');
-    qrcode.generate(qr, { small: true });
+    console.log('\n📱 QR CODE GENERATED!');
+    console.log('=====================');
+    console.log('1. Open WhatsApp on your phone');
+    console.log('2. Go to Settings → Linked Devices → Link a Device');
+    console.log('3. Scan this QR code:');
+    console.log('=====================\n');
+    
+    // Generate QR code in terminal
+    qrcode.generate(qr, { small: false }); // Use small: false for better readability
+    
+    // Also provide URL for easy scanning
+    console.log('\n📱 OR visit this URL to scan:');
+    console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
+    console.log('=====================\n');
 });
 
-// Client is ready
 client.on('ready', () => {
-    console.log('WhatsApp Bot is ready and connected!');
+    console.log('✅ WhatsApp Bot is ready and connected!');
+    console.log('🤖 Bot is now running...');
 });
 
-// Message handler
 client.on('message', async (message) => {
     const content = message.body.toLowerCase();
-    const sender = message.from;
     
-    console.log(`Message from ${sender}: ${content}`);
-
-    // Basic commands
     if (content === '!ping') {
-        message.reply('🏓 Pong!');
+        message.reply('🏓 Pong! Bot is alive!');
     }
     else if (content === '!help') {
-        const helpText = `🤖 *Bot Commands*:
-• !ping - Check if bot is alive
-• !help - Show this help menu
-• !time - Current time
-• !joke - Get a random joke
-• !quote - Inspirational quote
-• !info - Bot information`;
-        message.reply(helpText);
-    }
-    else if (content === '!time') {
-        const now = new Date().toLocaleString();
-        message.reply(`🕒 Current time: ${now}`);
-    }
-    else if (content === '!joke') {
-        try {
-            const response = await axios.get('https://official-joke-api.appspot.com/random_joke');
-            const joke = `${response.data.setup}\n\n${response.data.punchline}`;
-            message.reply(joke);
-        } catch (error) {
-            message.reply('❌ Failed to fetch joke. Try again later.');
-        }
-    }
-    else if (content === '!quote') {
-        try {
-            const response = await axios.get('https://api.quotable.io/random');
-            const quote = `💬 *${response.data.content}*\n\n- ${response.data.author}`;
-            message.reply(quote);
-        } catch (error) {
-            message.reply('❌ Failed to fetch quote. Try again later.');
-        }
-    }
-    else if (content === '!info') {
-        const info = `🤖 *WhatsApp Bot Information*
-Version: 1.0.0
-Status: ✅ Online
-Uptime: ${Math.floor(process.uptime())} seconds
-Made with: whatsapp-web.js`;
-        message.reply(info);
-    }
-    else if (content.startsWith('!echo ')) {
-        const text = content.replace('!echo ', '');
-        message.reply(`🔊 ${text}`);
-    }
-    
-    // Auto-reply to greetings
-    else if (['hello', 'hi', 'hey', 'hola'].some(greet => content.includes(greet))) {
-        message.reply('👋 Hello! Type !help to see available commands.');
+        message.reply('🤖 Available commands: !ping, !help');
     }
 });
 
-// Handle errors
-client.on('auth_failure', () => {
-    console.log('Authentication failed. Please restart the bot.');
-});
-
-client.on('disconnected', (reason) => {
-    console.log('Client was logged out:', reason);
-});
-
-// Initialize the client
 client.initialize();
