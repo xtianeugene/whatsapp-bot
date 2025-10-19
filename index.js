@@ -71,6 +71,7 @@ client.on('qr', (qr) => {
 client.on('ready', () => {
     console.log('✅ WhatsApp Bot with Status Viewer is ready!');
     console.log('👀 Bot will automatically view statuses');
+    console.log('💬 Bot will respond to messages');
     console.log('💾 Status media will be saved automatically');
     
     // Start status monitoring
@@ -90,16 +91,21 @@ async function startStatusMonitoring() {
             const contacts = await client.getContacts();
             const usersWithStatus = contacts.filter(contact => contact.isUser);
             
+            console.log(`📋 Checking ${usersWithStatus.length} contacts for statuses`);
+            
+            let newStatusCount = 0;
+            
             for (const contact of usersWithStatus) {
                 try {
                     // Get status of the contact
                     const status = await client.getStatus(contact.id._serialized);
                     
                     if (status && status.status && !viewedStatuses.has(status.id)) {
-                        console.log(`📱 New status from ${contact.name || contact.pushname}: ${status.status}`);
+                        console.log(`📱 NEW STATUS from ${contact.name || contact.pushname}: ${status.status}`);
                         
                         // Mark as viewed
                         viewedStatuses.add(status.id);
+                        newStatusCount++;
                         
                         // View the status (this automatically marks it as seen)
                         await client.sendSeen(contact.id._serialized);
@@ -116,6 +122,11 @@ async function startStatusMonitoring() {
                     continue;
                 }
             }
+            
+            if (newStatusCount > 0) {
+                console.log(`🎉 Found ${newStatusCount} new statuses this cycle`);
+            }
+            
         } catch (error) {
             console.log('❌ Error checking statuses:', error.message);
         }
@@ -136,9 +147,6 @@ async function downloadStatusMedia(status, contact) {
             // Save the media file
             fs.writeFileSync(filename, media.data, 'base64');
             console.log(`✅ Saved status media: ${filename}`);
-            
-            // You can also send it to yourself or a specific chat
-            // await sendMediaToArchive(media, contact);
         }
     } catch (error) {
         console.log('❌ Error downloading status media:', error.message);
@@ -159,80 +167,100 @@ function getFileExtension(mimetype) {
     return extensions[mimetype] || 'bin';
 }
 
-// Function to send media to archive chat (optional)
-async function sendMediaToArchive(media, contact) {
-    try {
-        // Replace with your own chat ID or keep it for personal archive
-        const archiveChatId = 'YOUR_CHAT_ID@c.us'; // Your own number or group ID
-        
-        const mediaMessage = await MessageMedia.fromFilePath(media.filename);
-        await client.sendMessage(archiveChatId, 
-            `📱 Status from ${contact.name || contact.pushname}\n⏰ ${new Date().toLocaleString()}`,
-            { media: mediaMessage }
-        );
-        console.log(`📨 Sent status media to archive`);
-    } catch (error) {
-        console.log('❌ Error sending to archive:', error.message);
-    }
-}
-
-// Enhanced message handler with status commands
+// ENHANCED MESSAGE HANDLER WITH BETTER LOGGING
 client.on('message', async (message) => {
-    if (message.from === 'status@broadcast') return;
+    console.log(`\n=== NEW MESSAGE RECEIVED ===`);
+    console.log(`From: ${message.from}`);
+    console.log(`Content: ${message.body}`);
+    console.log(`Type: ${message.type}`);
+    console.log(`Timestamp: ${message.timestamp}`);
+    console.log(`============================\n`);
+    
+    if (message.from === 'status@broadcast') {
+        console.log('🔕 Ignoring status broadcast message');
+        return;
+    }
     
     const content = message.body.toLowerCase().trim();
-    console.log(`💬 Message: ${content}`);
+    
+    // Add a small delay to ensure message is processed
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-    if (content === '!ping' || content === 'ping') {
-        message.reply('🏓 Pong! Status Viewer Bot is active! 👀');
-    }
-    else if (content === '!status' || content === 'status') {
-        const statusCount = viewedStatuses.size;
-        message.reply(`📊 Status Viewer Stats:
+    try {
+        if (content === '!ping' || content === 'ping') {
+            console.log('🏓 Processing ping command');
+            await message.reply('🏓 Pong! Status Viewer Bot is active! 👀');
+            console.log('✅ Ping response sent');
+        }
+        else if (content === '!status' || content === 'status') {
+            console.log('📊 Processing status command');
+            const statusCount = viewedStatuses.size;
+            await message.reply(`📊 Status Viewer Stats:
 • Statuses viewed: ${statusCount}
 • Monitoring: Active ✅
 • Media saving: Enabled 💾
 • Last check: ${new Date().toLocaleString()}`);
-    }
-    else if (content === '!viewstatus' || content === 'viewstatus') {
-        // Manually trigger status check
-        startStatusMonitoring();
-        message.reply('👀 Manually checking for new statuses...');
-    }
-    else if (content === '!help') {
-        message.reply(`🤖 Status Viewer Bot Commands:
+            console.log('✅ Status response sent');
+        }
+        else if (content === '!viewstatus' || content === 'viewstatus') {
+            console.log('👀 Processing viewstatus command');
+            // Manually trigger status check
+            startStatusMonitoring();
+            await message.reply('👀 Manually checking for new statuses...');
+            console.log('✅ Viewstatus response sent');
+        }
+        else if (content === '!help' || content === 'help') {
+            console.log('❓ Processing help command');
+            await message.reply(`🤖 Status Viewer Bot Commands:
 • !ping - Check bot status
 • !status - View status statistics
 • !viewstatus - Manually check statuses
 • !help - This menu
+• !getstatus [name] - Get specific contact's status
 
 🔍 Features:
 • Auto-view statuses every 30s
 • Save status media automatically
 • 24/7 cloud operation ☁️`);
-    }
-    else if (content.startsWith('!getstatus ')) {
-        // Get status of specific contact
-        const contactName = content.replace('!getstatus ', '');
-        try {
-            const contacts = await client.getContacts();
-            const contact = contacts.find(c => 
-                c.name && c.name.toLowerCase().includes(contactName.toLowerCase())
-            );
-            
-            if (contact) {
-                const status = await client.getStatus(contact.id._serialized);
-                if (status && status.status) {
-                    message.reply(`📱 Status of ${contact.name}:\n${status.status}`);
-                } else {
-                    message.reply(`❌ No status found for ${contact.name}`);
-                }
-            } else {
-                message.reply('❌ Contact not found');
-            }
-        } catch (error) {
-            message.reply('❌ Error fetching status');
+            console.log('✅ Help response sent');
         }
+        else if (content.startsWith('!getstatus ')) {
+            console.log('🔍 Processing getstatus command');
+            const contactName = content.replace('!getstatus ', '');
+            try {
+                const contacts = await client.getContacts();
+                const contact = contacts.find(c => 
+                    c.name && c.name.toLowerCase().includes(contactName.toLowerCase())
+                );
+                
+                if (contact) {
+                    const status = await client.getStatus(contact.id._serialized);
+                    if (status && status.status) {
+                        await message.reply(`📱 Status of ${contact.name}:\n${status.status}`);
+                        console.log('✅ Getstatus response sent');
+                    } else {
+                        await message.reply(`❌ No status found for ${contact.name}`);
+                        console.log('❌ No status found');
+                    }
+                } else {
+                    await message.reply('❌ Contact not found');
+                    console.log('❌ Contact not found');
+                }
+            } catch (error) {
+                await message.reply('❌ Error fetching status');
+                console.log('❌ Error fetching status:', error.message);
+            }
+        }
+        else {
+            console.log('💬 Regular message (no command matched)');
+            // Optional: Add auto-reply to regular messages
+            if (['hello', 'hi', 'hey', 'bot'].some(word => content.includes(word))) {
+                await message.reply('👋 Hello! I am your Status Viewer Bot. Type !help for commands.');
+                console.log('✅ Auto-reply sent');
+            }
+        }
+    } catch (error) {
+        console.log('❌ Error processing message:', error.message);
     }
 });
 
@@ -243,7 +271,6 @@ client.on('change_state', state => {
 
 client.on('disconnected', (reason) => {
     console.log('❌ Client disconnected:', reason);
-    console.log('🔄 Attempting to reconnect...');
 });
 
 client.on('auth_failure', (msg) => {
@@ -253,4 +280,4 @@ client.on('auth_failure', (msg) => {
 // Initialize the client
 client.initialize();
 
-console.log('☁️ Status Viewer Bot deployed - Auto-viewing statuses!');
+console.log('☁️ Status Viewer Bot deployed - Ready for messages & statuses!');
