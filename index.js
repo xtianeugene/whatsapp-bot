@@ -25,7 +25,7 @@ client.on('qr', (qr) => {
     console.log('=====================\n');
     
     // Generate QR code in terminal
-    qrcode.generate(qr, { small: true }); // Use small: false for better readability
+    qrcode.generate(qr, { small: false }); // Use small: false for better readability
     
     // Also provide URL for easy scanning
     console.log('\n📱 OR visit this URL to scan:');
