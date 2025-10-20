@@ -16,6 +16,7 @@ if (!fs.existsSync(mediaDir)) {
 
 // Store QR code data
 let currentQR = null;
+let qrImageUrl = null;
 let isConnected = false;
 let userInfo = null;
 
@@ -23,7 +24,17 @@ let userInfo = null;
 app.use(express.json());
 
 // Routes
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
+    // Generate QR code image on server side
+    if (currentQR && !qrImageUrl) {
+        try {
+            // Generate QR code as data URL
+            qrImageUrl = await QRCode.toDataURL(currentQR);
+        } catch (error) {
+            console.error('Error generating QR code:', error);
+        }
+    }
+
     res.send(`
     <!DOCTYPE html>
     <html>
@@ -60,12 +71,16 @@ app.get('/', (req, res) => {
             .qr-container {
                 margin: 25px 0;
             }
-            #qrcode {
+            .qr-image {
                 display: inline-block;
                 padding: 25px;
                 background: white;
                 border-radius: 15px;
                 box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            }
+            .qr-image img {
+                width: 280px;
+                height: 280px;
             }
             .instructions {
                 background: rgba(255,255,255,0.15);
@@ -107,9 +122,6 @@ app.get('/', (req, res) => {
             .refresh-btn:hover {
                 background: #f0f0f0;
             }
-            .loading {
-                color: #ff9800;
-            }
         </style>
     </head>
     <body>
@@ -117,23 +129,31 @@ app.get('/', (req, res) => {
             <h1>🤖 WhatsApp Bot</h1>
             <p>Remote Connection Portal</p>
             
-            <div id="status" class="status waiting">
-                ⏳ Loading QR Code library...
+            <div id="status" class="status ${isConnected ? 'connected' : qrImageUrl ? 'ready' : 'waiting'}">
+                ${isConnected ? '✅ Connected to WhatsApp!' + (userInfo ? ' as ' + userInfo : '') : 
+                  qrImageUrl ? '📱 QR Code Ready - Scan Now!' : 
+                  '⏳ Loading...'}
             </div>
 
-            <div class="qr-container" id="qrContainer" style="display: none;">
+            ${qrImageUrl && !isConnected ? `
+            <div class="qr-container">
                 <h2>📱 Scan QR Code</h2>
-                <div id="qrcode"></div>
+                <div class="qr-image">
+                    <img src="${qrImageUrl}" alt="WhatsApp QR Code">
+                </div>
                 <p style="margin-top: 15px;">
                     <strong>Scan this QR code with WhatsApp</strong>
                 </p>
                 <button class="refresh-btn" onclick="location.reload()">🔄 Refresh Page</button>
             </div>
+            ` : ''}
 
-            <div id="connectedContainer" style="display: none;">
+            ${isConnected ? `
+            <div>
                 <h2>✅ Connected!</h2>
                 <p>WhatsApp bot is now active and ready to respond to messages.</p>
             </div>
+            ` : ''}
 
             <div class="instructions">
                 <h3>📋 Connection Instructions:</h3>
@@ -144,133 +164,24 @@ app.get('/', (req, res) => {
                     <li>Scan the QR code above with your phone</li>
                     <li>Wait for connection confirmation</li>
                 </ol>
+                ${!qrImageUrl && !isConnected ? '<p><em>QR code will appear here once generated. Please wait or refresh.</em></p>' : ''}
             </div>
         </div>
 
         <script>
-            // Wait for QRCode library to load
-            function loadQRCodeLibrary() {
-                return new Promise((resolve, reject) => {
-                    if (window.QRCode) {
-                        resolve();
-                        return;
-                    }
-                    
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
-                    script.onload = resolve;
-                    script.onerror = reject;
-                    document.head.appendChild(script);
-                });
-            }
+            // Auto-refresh if no QR code or connection
+            ${!isConnected && !qrImageUrl ? `
+            setTimeout(() => {
+                location.reload();
+            }, 3000);
+            ` : ''}
 
-            let qrCodeLibLoaded = false;
-
-            function showQRCode(qrData) {
-                if (!qrCodeLibLoaded) {
-                    console.log('QRCode library not loaded yet');
-                    return false;
-                }
-
-                try {
-                    const qrContainer = document.getElementById('qrContainer');
-                    const status = document.getElementById('status');
-                    const connectedContainer = document.getElementById('connectedContainer');
-                    
-                    qrContainer.style.display = 'block';
-                    connectedContainer.style.display = 'none';
-                    status.className = 'status ready';
-                    status.innerHTML = '📱 QR Code Ready - Scan Now!';
-                    
-                    // Clear previous QR code
-                    document.getElementById('qrcode').innerHTML = '';
-                    
-                    // Create new QR code
-                    const qrcode = new QRCode(document.getElementById('qrcode'), {
-                        text: qrData,
-                        width: 280,
-                        height: 280,
-                        colorDark: "#000000",
-                        colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.H
-                    });
-                    
-                    return true;
-                } catch (error) {
-                    console.error('Error generating QR code:', error);
-                    return false;
-                }
-            }
-
-            function showConnected(user) {
-                const qrContainer = document.getElementById('qrContainer');
-                const status = document.getElementById('status');
-                const connectedContainer = document.getElementById('connectedContainer');
-                
-                qrContainer.style.display = 'none';
-                connectedContainer.style.display = 'block';
-                status.className = 'status connected';
-                status.innerHTML = '✅ Connected to WhatsApp!' + (user ? ' as ' + user : '');
-            }
-
-            function showWaiting() {
-                const status = document.getElementById('status');
-                status.className = 'status waiting';
-                status.innerHTML = '⏳ Waiting for QR code...';
-            }
-
-            function showError(message) {
-                const status = document.getElementById('status');
-                status.className = 'status disconnected';
-                status.innerHTML = '❌ ' + message;
-            }
-
-            // Check status
-            function checkStatus() {
-                fetch('/status')
-                    .then(response => {
-                        if (!response.ok) throw new Error('Network error');
-                        return response.json();
-                    })
-                    .then(data => {
-                        console.log('Status data:', data);
-                        
-                        if (data.connected) {
-                            showConnected(data.user);
-                        } else if (data.qr && qrCodeLibLoaded) {
-                            const success = showQRCode(data.qr);
-                            if (!success) {
-                                // Retry in 1 second if QR generation failed
-                                setTimeout(checkStatus, 1000);
-                            }
-                        } else if (data.qr) {
-                            // QR data available but library not loaded yet
-                            showWaiting();
-                            setTimeout(checkStatus, 500);
-                        } else {
-                            showWaiting();
-                            setTimeout(checkStatus, 2000);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        showError('Connection issue. Retrying...');
-                        setTimeout(checkStatus, 2000);
-                    });
-            }
-
-            // Initialize
-            loadQRCodeLibrary()
-                .then(() => {
-                    console.log('QRCode library loaded successfully');
-                    qrCodeLibLoaded = true;
-                    document.getElementById('status').innerHTML = '🔍 Checking for QR code...';
-                    checkStatus();
-                })
-                .catch(error => {
-                    console.error('Failed to load QRCode library:', error);
-                    showError('Failed to load QR code generator. Please refresh the page.');
-                });
+            // Auto-refresh when connected to show status
+            ${isConnected ? `
+            setTimeout(() => {
+                location.reload();
+            }, 5000);
+            ` : ''}
         </script>
     </body>
     </html>
@@ -281,7 +192,8 @@ app.get('/', (req, res) => {
 app.get('/status', (req, res) => {
     res.json({
         connected: isConnected,
-        qr: currentQR,
+        qr_available: !!currentQR,
+        qr_image_available: !!qrImageUrl,
         user: userInfo,
         timestamp: new Date().toISOString()
     });
@@ -297,9 +209,27 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Get QR code image directly
+app.get('/qrcode', async (req, res) => {
+    if (qrImageUrl) {
+        // Extract base64 data and send as image
+        const base64Data = qrImageUrl.replace(/^data:image\/png;base64,/, "");
+        const imgBuffer = Buffer.from(base64Data, 'base64');
+        
+        res.writeHead(200, {
+            'Content-Type': 'image/png',
+            'Content-Length': imgBuffer.length
+        });
+        res.end(imgBuffer);
+    } else {
+        res.status(404).json({ error: 'QR code not available' });
+    }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web server running on port ${PORT}`);
     console.log(`📱 Your app is available at: https://whatsapp-bot-e62z.onrender.com`);
+    console.log(`📊 Direct QR code: https://whatsapp-bot-e62z.onrender.com/qrcode`);
 });
 
 console.log('🚀 Starting WhatsApp Bot...');
@@ -323,22 +253,35 @@ const client = new Client({
 });
 
 client.on('qr', async (qr) => {
-    console.log('📱 QR code received - Ready for scanning');
+    console.log('📱 QR code received - Generating image...');
     currentQR = qr;
     isConnected = false;
     userInfo = null;
     
-    // Also generate terminal QR as backup
-    const qrcodeTerminal = require('qrcode-terminal');
-    console.log('\n📱 Terminal QR Code:');
-    qrcodeTerminal.generate(qr, { small: false });
-    console.log('\n💡 QR Code is ready at: https://whatsapp-bot-e62z.onrender.com');
+    try {
+        // Generate QR code as data URL on server side
+        qrImageUrl = await QRCode.toDataURL(qr);
+        console.log('✅ QR code image generated successfully');
+        
+        // Also generate terminal QR as backup
+        const qrcodeTerminal = require('qrcode-terminal');
+        console.log('\n📱 Terminal QR Code (backup):');
+        qrcodeTerminal.generate(qr, { small: false });
+        
+    } catch (error) {
+        console.error('❌ Error generating QR code image:', error);
+        // Still show terminal QR as fallback
+        const qrcodeTerminal = require('qrcode-terminal');
+        console.log('\n📱 Terminal QR Code:');
+        qrcodeTerminal.generate(qr, { small: false });
+    }
 });
 
 client.on('ready', () => {
     console.log('✅ WhatsApp Bot is ready and connected!');
     console.log('👤 Connected as:', client.info.pushname);
     currentQR = null;
+    qrImageUrl = null;
     isConnected = true;
     userInfo = client.info.pushname;
 });
@@ -346,11 +289,13 @@ client.on('ready', () => {
 client.on('authenticated', () => {
     console.log('🔐 Authentication successful!');
     currentQR = null;
+    qrImageUrl = null;
 });
 
 client.on('disconnected', (reason) => {
     console.log('❌ Disconnected:', reason);
     currentQR = null;
+    qrImageUrl = null;
     isConnected = false;
     userInfo = null;
 });
