@@ -17,10 +17,9 @@ if (!fs.existsSync(mediaDir)) {
 // Simple health check
 app.get('/', (req, res) => {
   res.json({ 
-    status: '✅ WhatsApp Media Bot',
+    status: '✅ WhatsApp Bot',
     connected: true,
-    memory: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
-    features: ['status-viewer', 'media-saver', 'auto-greeting']
+    features: ['media-saver', 'auto-greeting', 'location-response']
   });
 });
 
@@ -28,15 +27,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 Web server running on port ${PORT}`);
 });
 
-console.log('🚀 Starting WhatsApp Media Bot...');
+console.log('🚀 Starting WhatsApp Bot...');
 
-// Memory monitoring
-setInterval(() => {
-  const used = process.memoryUsage();
-  console.log(`💾 Memory: ${Math.round(used.heapUsed / 1024 / 1024)}MB`);
-}, 60000);
-
-// Initialize WhatsApp client with memory optimization
+// Initialize WhatsApp client
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
@@ -54,67 +47,18 @@ const client = new Client({
     }
 });
 
-// Store viewed statuses (limited size)
-const viewedStatuses = new Set();
-let statusCheckInterval;
-
 client.on('qr', (qr) => {
     console.log('\n📱 QR CODE:');
     qrcode.generate(qr, { small: true });
 });
 
 client.on('ready', () => {
-    console.log('✅ WhatsApp Media Bot is ready!');
-    console.log('👀 Will view & like statuses');
+    console.log('✅ WhatsApp Bot is ready!');
     console.log('💾 Will save view-once media');
-    console.log('👋 Will respond to greetings');
-    
-    startStatusMonitoring();
+    console.log('👋 Will respond to greetings and location questions');
 });
 
-// LIGHTWEIGHT STATUS MONITORING
-function startStatusMonitoring() {
-    console.log('🔍 Starting status monitoring (lightweight)');
-    
-    if (statusCheckInterval) {
-        clearInterval(statusCheckInterval);
-    }
-    
-    statusCheckInterval = setInterval(async () => {
-        try {
-            // Get only recent contacts to save memory
-            const contacts = await client.getContacts();
-            const recentContacts = contacts.slice(0, 30); // Limit to 30 contacts
-            
-            for (const contact of recentContacts) {
-                if (!contact.isUser) continue;
-                
-                try {
-                    const status = await client.getStatus(contact.id._serialized);
-                    if (status && status.id && !viewedStatuses.has(status.id)) {
-                        console.log(`👀 Viewing status from ${contact.pushname}`);
-                        viewedStatuses.add(status.id);
-                        
-                        // Mark as seen (view)
-                        await client.sendSeen(contact.id._serialized);
-                        
-                        // Clean up old viewed statuses to save memory
-                        if (viewedStatuses.size > 200) {
-                            const first = viewedStatuses.values().next().value;
-                            viewedStatuses.delete(first);
-                        }
-                    }
-                } catch (error) {
-                    // Silent fail for status checks
-                }
-            }
-        } catch (error) {
-            console.log('❌ Status check error');
-        }
-    }, 45000); // Check every 45 seconds (reduced frequency)
-}
-
-// ENHANCED MESSAGE HANDLER WITH GREETINGS
+// MESSAGE HANDLER
 client.on('message', async (message) => {
     // Ignore status broadcasts
     if (message.from === 'status@broadcast') return;
@@ -138,30 +82,24 @@ client.on('message', async (message) => {
         return;
     }
     
-    // COMMAND RESPONSES
-    if (content === '!ping' || content === 'ping') {
-        await message.reply('🏓 Pong! Media Bot is running smoothly!');
+    // LOCATION/WHERE ARE YOU RESPONSES
+    if (isLocationQuestion(content)) {
+        console.log('📍 Location question detected, responding...');
+        await handleLocationQuestion(message);
+        return;
     }
-    else if (content === '!status' || content === 'status') {
-        await message.reply(`📊 Bot Status:
-• Statuses viewed: ${viewedStatuses.size}
-• Memory: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB
-• Uptime: ${Math.floor(process.uptime())}s`);
+    
+    // SIMPLE COMMAND RESPONSES
+    if (content === '!ping' || content === 'ping') {
+        await message.reply('🏓 Pong! Bot is running!');
     }
     else if (content === '!help' || content === 'help') {
-        await message.reply(`🤖 *Media Bot Commands*:
-• !ping - Check bot status
-• !status - View statistics  
-• !help - This menu
+        await message.reply(`🤖 *Bot Commands*:
+• Just say hello! 👋
+• Ask "where are you?" 📍
+• Send view-once media to save it 💾
 
-💡 *Auto Features*:
-• Views statuses automatically
-• Saves view-once media
-• Responds to greetings
-• 24/7 cloud operation ☁️`);
-    }
-    else if (content === '!thanks' || content.includes('thank you')) {
-        await message.reply('😊 You\'re welcome! Glad I could help!');
+I'll respond automatically!`);
     }
 });
 
@@ -179,15 +117,31 @@ function isGreeting(message) {
     return greetings.some(greeting => messageLower.includes(greeting));
 }
 
+// LOCATION QUESTION DETECTION
+function isLocationQuestion(message) {
+    const locationPhrases = [
+        'where are you',
+        'where are u',
+        'your location',
+        'where is the bot',
+        'are you here',
+        'where do you live',
+        'your position'
+    ];
+    
+    const messageLower = message.toLowerCase();
+    return locationPhrases.some(phrase => messageLower.includes(phrase));
+}
+
 // GREETING RESPONSE HANDLER
 async function handleGreeting(message, content) {
     const greetings = [
         '👋 Hello there! How can I help you today?',
-        '🤖 Hi! I\'m your WhatsApp bot assistant!',
+        '🤖 Hi! I\'m your WhatsApp bot!',
         '😊 Hey! Nice to hear from you!',
-        '🌟 Hello! Type !help to see what I can do!',
-        '💫 Hi there! I\'m here and ready to help!',
-        '🚀 Hey! Welcome to the bot experience!'
+        '🌟 Hello! You can ask me "where are you?" or send view-once media!',
+        '💫 Hi there! I\'m here and ready!',
+        '🚀 Hey! Welcome!'
     ];
     
     // Select random greeting response
@@ -205,6 +159,21 @@ async function handleGreeting(message, content) {
     await message.reply(`${timeGreeting} ${randomGreeting}`);
     
     console.log('✅ Greeting response sent');
+}
+
+// LOCATION QUESTION HANDLER
+async function handleLocationQuestion(message) {
+    const responses = [
+        "📍 I'm running in the cloud! A virtual assistant always available! ☁️",
+        "🤖 I'm an AI bot living in the digital world! No physical location!",
+        "💻 I exist in the cloud server, ready to help you anytime!",
+        "🌐 I'm running on a secure server, accessible from anywhere!",
+        "⚡ I'm in the digital realm - always online and ready to assist!"
+    ];
+    
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    await message.reply(randomResponse);
+    console.log('📍 Location response sent');
 }
 
 // FUNCTION TO SAVE VIEW-ONCE MEDIA
@@ -252,9 +221,6 @@ function getFileExtension(mimetype) {
 // Handle disconnections
 client.on('disconnected', (reason) => {
     console.log('❌ Disconnected:', reason);
-    if (statusCheckInterval) {
-        clearInterval(statusCheckInterval);
-    }
 });
 
 // Initialize the client
@@ -263,11 +229,8 @@ client.initialize();
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('🛑 Shutting down...');
-    if (statusCheckInterval) {
-        clearInterval(statusCheckInterval);
-    }
     await client.destroy();
     process.exit(0);
 });
 
-console.log('☁️ Media Bot deployed - Ready with greetings!');
+console.log('🤖 Bot started - Ready for greetings and media saving!');
