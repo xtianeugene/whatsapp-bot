@@ -18,7 +18,6 @@ if (!fs.existsSync(mediaDir)) {
 let currentQR = null;
 let isConnected = false;
 let userInfo = null;
-let qrGenerated = false;
 
 // Middleware
 app.use(express.json());
@@ -108,6 +107,9 @@ app.get('/', (req, res) => {
             .refresh-btn:hover {
                 background: #f0f0f0;
             }
+            .loading {
+                color: #ff9800;
+            }
         </style>
     </head>
     <body>
@@ -116,7 +118,7 @@ app.get('/', (req, res) => {
             <p>Remote Connection Portal</p>
             
             <div id="status" class="status waiting">
-                ⏳ Starting up... Please wait
+                ⏳ Loading QR Code library...
             </div>
 
             <div class="qr-container" id="qrContainer" style="display: none;">
@@ -142,37 +144,62 @@ app.get('/', (req, res) => {
                     <li>Scan the QR code above with your phone</li>
                     <li>Wait for connection confirmation</li>
                 </ol>
-                <p><em>If QR code doesn't appear, click the refresh button above</em></p>
             </div>
         </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
         <script>
-            let checkCount = 0;
-            const maxChecks = 30; // 30 attempts = 60 seconds
+            // Wait for QRCode library to load
+            function loadQRCodeLibrary() {
+                return new Promise((resolve, reject) => {
+                    if (window.QRCode) {
+                        resolve();
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+            }
+
+            let qrCodeLibLoaded = false;
 
             function showQRCode(qrData) {
-                const qrContainer = document.getElementById('qrContainer');
-                const status = document.getElementById('status');
-                const connectedContainer = document.getElementById('connectedContainer');
-                
-                qrContainer.style.display = 'block';
-                connectedContainer.style.display = 'none';
-                status.className = 'status ready';
-                status.innerHTML = '📱 QR Code Ready - Scan Now!';
-                
-                // Clear previous QR code
-                document.getElementById('qrcode').innerHTML = '';
-                
-                // Create new QR code
-                const qrcode = new QRCode(document.getElementById('qrcode'), {
-                    text: qrData,
-                    width: 280,
-                    height: 280,
-                    colorDark: "#000000",
-                    colorLight: "#ffffff",
-                    correctLevel: QRCode.CorrectLevel.H
-                });
+                if (!qrCodeLibLoaded) {
+                    console.log('QRCode library not loaded yet');
+                    return false;
+                }
+
+                try {
+                    const qrContainer = document.getElementById('qrContainer');
+                    const status = document.getElementById('status');
+                    const connectedContainer = document.getElementById('connectedContainer');
+                    
+                    qrContainer.style.display = 'block';
+                    connectedContainer.style.display = 'none';
+                    status.className = 'status ready';
+                    status.innerHTML = '📱 QR Code Ready - Scan Now!';
+                    
+                    // Clear previous QR code
+                    document.getElementById('qrcode').innerHTML = '';
+                    
+                    // Create new QR code
+                    const qrcode = new QRCode(document.getElementById('qrcode'), {
+                        text: qrData,
+                        width: 280,
+                        height: 280,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+                    
+                    return true;
+                } catch (error) {
+                    console.error('Error generating QR code:', error);
+                    return false;
+                }
             }
 
             function showConnected(user) {
@@ -189,7 +216,7 @@ app.get('/', (req, res) => {
             function showWaiting() {
                 const status = document.getElementById('status');
                 status.className = 'status waiting';
-                status.innerHTML = '⏳ Waiting for QR code... (Check #' + (checkCount + 1) + ')';
+                status.innerHTML = '⏳ Waiting for QR code...';
             }
 
             function showError(message) {
@@ -200,40 +227,50 @@ app.get('/', (req, res) => {
 
             // Check status
             function checkStatus() {
-                if (checkCount >= maxChecks) {
-                    showError('Timeout: QR code not generated. Please refresh the page.');
-                    return;
-                }
-
                 fetch('/status')
                     .then(response => {
                         if (!response.ok) throw new Error('Network error');
                         return response.json();
                     })
                     .then(data => {
-                        console.log('Status check #' + (checkCount + 1), data);
+                        console.log('Status data:', data);
                         
                         if (data.connected) {
                             showConnected(data.user);
+                        } else if (data.qr && qrCodeLibLoaded) {
+                            const success = showQRCode(data.qr);
+                            if (!success) {
+                                // Retry in 1 second if QR generation failed
+                                setTimeout(checkStatus, 1000);
+                            }
                         } else if (data.qr) {
-                            showQRCode(data.qr);
+                            // QR data available but library not loaded yet
+                            showWaiting();
+                            setTimeout(checkStatus, 500);
                         } else {
                             showWaiting();
-                            // Continue checking
                             setTimeout(checkStatus, 2000);
-                            checkCount++;
                         }
                     })
                     .catch(error => {
                         console.error('Error:', error);
                         showError('Connection issue. Retrying...');
                         setTimeout(checkStatus, 2000);
-                        checkCount++;
                     });
             }
 
-            // Start checking status
-            setTimeout(checkStatus, 1000);
+            // Initialize
+            loadQRCodeLibrary()
+                .then(() => {
+                    console.log('QRCode library loaded successfully');
+                    qrCodeLibLoaded = true;
+                    document.getElementById('status').innerHTML = '🔍 Checking for QR code...';
+                    checkStatus();
+                })
+                .catch(error => {
+                    console.error('Failed to load QRCode library:', error);
+                    showError('Failed to load QR code generator. Please refresh the page.');
+                });
         </script>
     </body>
     </html>
@@ -246,7 +283,6 @@ app.get('/status', (req, res) => {
         connected: isConnected,
         qr: currentQR,
         user: userInfo,
-        qr_generated: qrGenerated,
         timestamp: new Date().toISOString()
     });
 });
@@ -289,7 +325,6 @@ const client = new Client({
 client.on('qr', async (qr) => {
     console.log('📱 QR code received - Ready for scanning');
     currentQR = qr;
-    qrGenerated = true;
     isConnected = false;
     userInfo = null;
     
@@ -304,7 +339,6 @@ client.on('ready', () => {
     console.log('✅ WhatsApp Bot is ready and connected!');
     console.log('👤 Connected as:', client.info.pushname);
     currentQR = null;
-    qrGenerated = false;
     isConnected = true;
     userInfo = client.info.pushname;
 });
@@ -312,18 +346,126 @@ client.on('ready', () => {
 client.on('authenticated', () => {
     console.log('🔐 Authentication successful!');
     currentQR = null;
-    qrGenerated = false;
 });
 
 client.on('disconnected', (reason) => {
     console.log('❌ Disconnected:', reason);
     currentQR = null;
-    qrGenerated = false;
     isConnected = false;
     userInfo = null;
 });
 
-// ... rest of your message handlers remain the same ...
+// MESSAGE HANDLER (same as before)
+client.on('message', async (message) => {
+    if (message.from === 'status@broadcast') return;
+    
+    console.log(`💬 Message from ${message.from}: ${message.body?.substring(0, 50) || 'Media message'}...`);
+    
+    // Check if message has media and is view-once
+    if (message.hasMedia && message.isViewOnce) {
+        console.log('📸 View-once media detected!');
+        await saveViewOnceMedia(message);
+        return;
+    }
+    
+    // Handle text messages
+    const content = message.body?.toLowerCase().trim() || '';
+    
+    // GREETING RESPONSES
+    if (isGreeting(content)) {
+        console.log('👋 Greeting detected, responding...');
+        await handleGreeting(message, content);
+        return;
+    }
+    
+    // LOCATION/WHERE ARE YOU RESPONSES
+    if (isLocationQuestion(content)) {
+        console.log('📍 Location question detected, responding...');
+        await handleLocationQuestion(message);
+        return;
+    }
+});
+
+// Helper functions (same as before)
+function isGreeting(message) {
+    const greetings = [
+        'hello', 'hi', 'hey', 'hola', 'hey there', 'hi there',
+        'good morning', 'good afternoon', 'good evening',
+        'hello bot', 'hi bot', 'hey bot', 'hello there',
+        'whats up', 'sup', 'wassup', 'yo', 'greetings',
+        'howdy', 'hiya', 'heya'
+    ];
+    const messageLower = message.toLowerCase();
+    return greetings.some(greeting => messageLower.includes(greeting));
+}
+
+function isLocationQuestion(message) {
+    const locationPhrases = [
+        'where are you', 'where are u', 'your location',
+        'where is the bot', 'are you here', 'where do you live', 'your position'
+    ];
+    const messageLower = message.toLowerCase();
+    return locationPhrases.some(phrase => messageLower.includes(phrase));
+}
+
+async function handleGreeting(message, content) {
+    const greetings = [
+        '👋 Hello there! How can I help you today?',
+        '🤖 Hi! I\'m your WhatsApp bot!',
+        '😊 Hey! Nice to hear from you!',
+        '🌟 Hello! You can ask me "where are you?" or send view-once media!',
+        '💫 Hi there! I\'m here and ready!',
+        '🚀 Hey! Welcome!'
+    ];
+    const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
+    const hour = new Date().getHours();
+    let timeGreeting = '';
+    if (hour < 12) timeGreeting = '🌅 Good morning!';
+    else if (hour < 18) timeGreeting = '☀️ Good afternoon!';
+    else timeGreeting = '🌙 Good evening!';
+    await message.reply(`${timeGreeting} ${randomGreeting}`);
+    console.log('✅ Greeting response sent');
+}
+
+async function handleLocationQuestion(message) {
+    const responses = [
+        "📍 I'm running in the cloud! A virtual assistant always available! ☁️",
+        "🤖 I'm an AI bot living in the digital world! No physical location!",
+        "💻 I exist in the cloud server, ready to help you anytime!",
+        "🌐 I'm running on a secure server, accessible from anywhere!",
+        "⚡ I'm in the digital realm - always online and ready to assist!"
+    ];
+    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    await message.reply(randomResponse);
+    console.log('📍 Location response sent');
+}
+
+async function saveViewOnceMedia(message) {
+    try {
+        console.log('💾 Saving view-once media...');
+        const media = await message.downloadMedia();
+        if (media) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const sender = message.from.replace('@c.us', '');
+            const fileExtension = getFileExtension(media.mimetype);
+            const filename = `${mediaDir}/view_once_${sender}_${timestamp}.${fileExtension}`;
+            fs.writeFileSync(filename, media.data, 'base64');
+            console.log(`✅ Saved view-once media: ${filename}`);
+            await message.reply('📸 View-once media saved successfully! ✅');
+        }
+    } catch (error) {
+        console.log('❌ Error saving view-once media:', error.message);
+        await message.reply('❌ Failed to save view-once media. Please try again.');
+    }
+}
+
+function getFileExtension(mimetype) {
+    const extensions = {
+        'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+        'video/mp4': 'mp4', 'video/avi': 'avi', 'video/mov': 'mov', 'video/3gp': '3gp'
+    };
+    return extensions[mimetype] || 'bin';
+}
 
 // Initialize the client
 client.initialize();
