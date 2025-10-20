@@ -19,19 +19,11 @@ let currentQR = null;
 let isConnected = false;
 let userInfo = null;
 
-// Middleware to handle CORS if needed
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    next();
-});
+// Middleware
+app.use(express.static('public'));
 
 // Routes
 app.get('/', (req, res) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.get('host');
-    const baseUrl = `${protocol}://${host}`;
-    
     res.send(`
     <!DOCTYPE html>
     <html>
@@ -92,7 +84,6 @@ app.get('/', (req, res) => {
             }
             .connected { 
                 background: linear-gradient(135deg, #4CAF50, #45a049);
-                animation: pulse 2s infinite;
             }
             .disconnected { 
                 background: linear-gradient(135deg, #f44336, #da190b);
@@ -116,11 +107,6 @@ app.get('/', (req, res) => {
                 word-break: break-all;
                 font-size: 0.9em;
             }
-            @keyframes pulse {
-                0% { transform: scale(1); }
-                50% { transform: scale(1.02); }
-                100% { transform: scale(1); }
-            }
             .share-info {
                 background: rgba(255,255,255,0.1);
                 padding: 15px;
@@ -136,16 +122,15 @@ app.get('/', (req, res) => {
             <p>Remote Connection Portal</p>
             
             <div id="status" class="status waiting">
-                ⏳ Waiting for QR Code...
+                ⏳ Loading...
             </div>
 
             <div class="qr-container" id="qrContainer" style="display: none;">
                 <h2>📱 Scan QR Code</h2>
                 <div id="qrcode"></div>
                 <p style="margin-top: 15px;">
-                    <strong>Share this link:</strong>
+                    <strong>Scan this QR code with WhatsApp</strong>
                 </p>
-                <div class="share-link" id="shareUrl">${baseUrl}</div>
             </div>
 
             <div class="instructions">
@@ -168,20 +153,11 @@ app.get('/', (req, res) => {
                     <li>🌐 24/7 cloud operation</li>
                 </ul>
             </div>
-
-            <div class="share-info">
-                <strong>🌍 Remote Access:</strong> This bot is running on a cloud server. 
-                Anyone with this link can scan the QR code to connect the bot to WhatsApp.
-            </div>
         </div>
 
         <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
         <script>
-            let qrGenerated = false;
-
             function updateQRCode(qrData) {
-                if (!qrData || qrGenerated) return;
-                
                 const qrContainer = document.getElementById('qrContainer');
                 const status = document.getElementById('status');
                 
@@ -201,8 +177,6 @@ app.get('/', (req, res) => {
                     colorLight: "#ffffff",
                     correctLevel: QRCode.CorrectLevel.H
                 });
-                
-                qrGenerated = true;
             }
 
             function updateStatus(connected, user) {
@@ -213,18 +187,23 @@ app.get('/', (req, res) => {
                     status.className = 'status connected';
                     status.innerHTML = '✅ Connected to WhatsApp!' + (user ? ' as ' + user : '');
                     qrContainer.style.display = 'none';
-                    qrGenerated = false;
                 } else {
                     status.className = 'status disconnected';
-                    status.innerHTML = '❌ Disconnected - Waiting for QR code...';
+                    status.innerHTML = '❌ Waiting for QR code...';
                 }
             }
 
-            // Check status every 2 seconds
+            // Check status
             function checkStatus() {
                 fetch('/status')
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
                     .then(data => {
+                        console.log('Status data:', data);
                         if (data.connected) {
                             updateStatus(true, data.user);
                         } else if (data.qr) {
@@ -236,21 +215,23 @@ app.get('/', (req, res) => {
                     })
                     .catch(error => {
                         console.error('Error checking status:', error);
-                        document.getElementById('status').innerHTML = '❌ Error connecting to server';
+                        document.getElementById('status').innerHTML = '⏳ Starting up... Please wait';
+                        // Retry after 3 seconds
+                        setTimeout(checkStatus, 3000);
                     });
             }
 
-            // Start checking status
-            checkStatus();
-            setInterval(checkStatus, 2000);
+            // Start checking status after page loads
+            setTimeout(checkStatus, 1000);
         </script>
     </body>
     </html>
     `);
 });
 
-// Status API endpoint
+// Status API endpoint - FIXED
 app.get('/status', (req, res) => {
+    console.log('📊 Status check - Connected:', isConnected, 'QR Available:', !!currentQR);
     res.json({
         connected: isConnected,
         qr: currentQR,
@@ -271,10 +252,12 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web server running on port ${PORT}`);
-    console.log(`📱 Share this URL with anyone to scan QR code remotely`);
+    console.log(`📱 Your app is available at your Render URL`);
+    console.log(`📊 Status endpoint: /status`);
+    console.log(`❤️ Health check: /health`);
 });
 
-console.log('🚀 Starting WhatsApp Bot - Remote Access Enabled...');
+console.log('🚀 Starting WhatsApp Bot...');
 
 // Initialize WhatsApp client
 const client = new Client({
@@ -295,10 +278,15 @@ const client = new Client({
 });
 
 client.on('qr', async (qr) => {
-    console.log('📱 QR code received - Ready for remote scanning');
+    console.log('📱 QR code received - Ready for scanning');
     currentQR = qr;
     isConnected = false;
     userInfo = null;
+    
+    // Also generate terminal QR as backup
+    const qrcodeTerminal = require('qrcode-terminal');
+    console.log('\n📱 Terminal QR Code (backup):');
+    qrcodeTerminal.generate(qr, { small: false });
 });
 
 client.on('ready', () => {
@@ -321,7 +309,7 @@ client.on('disconnected', (reason) => {
     userInfo = null;
 });
 
-// MESSAGE HANDLER
+// MESSAGE HANDLER (same as before)
 client.on('message', async (message) => {
     if (message.from === 'status@broadcast') return;
     
@@ -365,7 +353,7 @@ I'll respond automatically!`);
     }
 });
 
-// GREETING DETECTION FUNCTION
+// All helper functions remain the same...
 function isGreeting(message) {
     const greetings = [
         'hello', 'hi', 'hey', 'hola', 'hey there', 'hi there',
@@ -374,23 +362,19 @@ function isGreeting(message) {
         'whats up', 'sup', 'wassup', 'yo', 'greetings',
         'howdy', 'hiya', 'heya'
     ];
-    
     const messageLower = message.toLowerCase();
     return greetings.some(greeting => messageLower.includes(greeting));
 }
 
-// LOCATION QUESTION DETECTION
 function isLocationQuestion(message) {
     const locationPhrases = [
         'where are you', 'where are u', 'your location',
         'where is the bot', 'are you here', 'where do you live', 'your position'
     ];
-    
     const messageLower = message.toLowerCase();
     return locationPhrases.some(phrase => messageLower.includes(phrase));
 }
 
-// GREETING RESPONSE HANDLER
 async function handleGreeting(message, content) {
     const greetings = [
         '👋 Hello there! How can I help you today?',
@@ -400,20 +384,16 @@ async function handleGreeting(message, content) {
         '💫 Hi there! I\'m here and ready!',
         '🚀 Hey! Welcome!'
     ];
-    
     const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
     const hour = new Date().getHours();
     let timeGreeting = '';
-    
     if (hour < 12) timeGreeting = '🌅 Good morning!';
     else if (hour < 18) timeGreeting = '☀️ Good afternoon!';
     else timeGreeting = '🌙 Good evening!';
-    
     await message.reply(`${timeGreeting} ${randomGreeting}`);
     console.log('✅ Greeting response sent');
 }
 
-// LOCATION QUESTION HANDLER
 async function handleLocationQuestion(message) {
     const responses = [
         "📍 I'm running in the cloud! A virtual assistant always available! ☁️",
@@ -422,24 +402,20 @@ async function handleLocationQuestion(message) {
         "🌐 I'm running on a secure server, accessible from anywhere!",
         "⚡ I'm in the digital realm - always online and ready to assist!"
     ];
-    
     const randomResponse = responses[Math.floor(Math.random() * responses.length)];
     await message.reply(randomResponse);
     console.log('📍 Location response sent');
 }
 
-// FUNCTION TO SAVE VIEW-ONCE MEDIA
 async function saveViewOnceMedia(message) {
     try {
         console.log('💾 Saving view-once media...');
         const media = await message.downloadMedia();
-        
         if (media) {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const sender = message.from.replace('@c.us', '');
             const fileExtension = getFileExtension(media.mimetype);
             const filename = `${mediaDir}/view_once_${sender}_${timestamp}.${fileExtension}`;
-            
             fs.writeFileSync(filename, media.data, 'base64');
             console.log(`✅ Saved view-once media: ${filename}`);
             await message.reply('📸 View-once media saved successfully! ✅');
@@ -450,7 +426,6 @@ async function saveViewOnceMedia(message) {
     }
 }
 
-// Function to get file extension
 function getFileExtension(mimetype) {
     const extensions = {
         'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
@@ -469,4 +444,4 @@ process.on('SIGINT', async () => {
     process.exit(0);
 });
 
-console.log('🤖 Remote WhatsApp Bot started! Share the URL to connect.');
+console.log('🤖 Bot initialization complete');
