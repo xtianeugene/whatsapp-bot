@@ -15,19 +15,37 @@ if (!fs.existsSync(mediaDir)) {
 }
 
 // Store QR code data
-let qrCodeData = null;
 let currentQR = null;
+let isConnected = false;
+let userInfo = null;
+
+// Middleware to handle CORS if needed
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    next();
+});
 
 // Routes
 app.get('/', (req, res) => {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+    
     res.send(`
     <!DOCTYPE html>
     <html>
     <head>
-        <title>WhatsApp Bot</title>
+        <title>WhatsApp Bot - Remote Access</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
             body { 
-                font-family: Arial, sans-serif; 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
                 text-align: center; 
                 padding: 20px;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -37,121 +55,172 @@ app.get('/', (req, res) => {
             .container {
                 background: rgba(255,255,255,0.1);
                 padding: 30px;
-                border-radius: 15px;
+                border-radius: 20px;
                 backdrop-filter: blur(10px);
-                max-width: 600px;
+                max-width: 500px;
                 margin: 0 auto;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            }
+            h1 {
+                margin-bottom: 20px;
+                font-size: 2em;
             }
             .qr-container {
-                margin: 20px 0;
+                margin: 25px 0;
             }
             #qrcode {
                 display: inline-block;
-                padding: 20px;
+                padding: 25px;
                 background: white;
-                border-radius: 10px;
+                border-radius: 15px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
             }
             .instructions {
-                background: rgba(255,255,255,0.2);
-                padding: 20px;
-                border-radius: 10px;
-                margin: 20px 0;
+                background: rgba(255,255,255,0.15);
+                padding: 25px;
+                border-radius: 15px;
+                margin: 25px 0;
                 text-align: left;
+                border-left: 4px solid #fff;
             }
             .status {
-                padding: 10px;
-                border-radius: 5px;
-                margin: 10px 0;
+                padding: 15px;
+                border-radius: 10px;
+                margin: 15px 0;
                 font-weight: bold;
+                font-size: 1.1em;
             }
-            .connected { background: #4CAF50; }
-            .disconnected { background: #f44336; }
-            .waiting { background: #ff9800; }
+            .connected { 
+                background: linear-gradient(135deg, #4CAF50, #45a049);
+                animation: pulse 2s infinite;
+            }
+            .disconnected { 
+                background: linear-gradient(135deg, #f44336, #da190b);
+            }
+            .waiting { 
+                background: linear-gradient(135deg, #ff9800, #e68900);
+            }
+            .feature-list {
+                text-align: left;
+                margin: 20px 0;
+            }
+            .feature-list li {
+                margin: 10px 0;
+                padding-left: 10px;
+            }
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.02); }
+                100% { transform: scale(1); }
+            }
+            .share-info {
+                background: rgba(255,255,255,0.1);
+                padding: 15px;
+                border-radius: 10px;
+                margin: 15px 0;
+                font-size: 0.9em;
+            }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>📱 WhatsApp Bot</h1>
+            <h1>🤖 WhatsApp Bot</h1>
+            <p>Remote Connection Portal</p>
             
             <div id="status" class="status waiting">
                 ⏳ Waiting for QR Code...
             </div>
 
             <div class="qr-container" id="qrContainer" style="display: none;">
-                <h2>Scan QR Code</h2>
+                <h2>📱 Scan QR Code</h2>
                 <div id="qrcode"></div>
+                <p style="margin-top: 15px; font-size: 0.9em;">
+                    <strong>Share this link:</strong><br>
+                    <span style="background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 5px; word-break: break-all;">
+                        ${baseUrl}
+                    </span>
+                </p>
             </div>
 
             <div class="instructions">
-                <h3>📋 How to Connect:</h3>
-                <ol>
+                <h3>📋 Connection Instructions:</h3>
+                <ol style="margin-left: 20px; margin-top: 10px;">
                     <li>Open <strong>WhatsApp</strong> on your phone</li>
-                    <li>Tap <strong>Menu (⋮) → Linked Devices</strong></li>
+                    <li>Tap <strong>Settings (⋮) → Linked Devices</strong></li>
                     <li>Tap <strong>"Link a Device"</strong></li>
-                    <li>Scan the <strong>QR code</strong> above</li>
-                    <li>Wait for the connection confirmation</li>
+                    <li>Scan the QR code above with your phone</li>
+                    <li>Wait for connection confirmation</li>
                 </ol>
-                <p><strong>Note:</strong> This page will auto-refresh every 5 seconds.</p>
             </div>
 
-            <div class="features">
+            <div class="feature-list">
                 <h3>✨ Bot Features:</h3>
-                <ul style="text-align: left;">
-                    <li>👋 Responds to greetings (hello, hi, etc.)</li>
+                <ul style="margin-left: 20px;">
+                    <li>👋 Auto-responds to greetings (hello, hi, etc.)</li>
                     <li>📍 Answers "where are you?" questions</li>
-                    <li>💾 Saves view-once media automatically</li>
+                    <li>💾 Automatically saves view-once media</li>
+                    <li>🌐 24/7 cloud operation</li>
                 </ul>
+            </div>
+
+            <div class="share-info">
+                <strong>🌍 Remote Access:</strong> This bot is running on a cloud server. 
+                Anyone with this link can scan the QR code to connect the bot to WhatsApp.
             </div>
         </div>
 
+        <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
         <script>
+            let qrGenerated = false;
+
             function updateQRCode(qrData) {
+                if (!qrData || qrGenerated) return;
+                
                 const qrContainer = document.getElementById('qrContainer');
                 const status = document.getElementById('status');
                 
-                if (qrData) {
-                    qrContainer.style.display = 'block';
-                    status.className = 'status waiting';
-                    status.innerHTML = '📱 QR Code Ready - Scan Now!';
-                    
-                    // Clear previous QR code
-                    document.getElementById('qrcode').innerHTML = '';
-                    
-                    // Create new QR code
-                    const qrcode = new QRCode(document.getElementById('qrcode'), {
-                        text: qrData,
-                        width: 300,
-                        height: 300,
-                        colorDark: "#000000",
-                        colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.H
-                    });
-                } else {
-                    qrContainer.style.display = 'none';
-                }
+                qrContainer.style.display = 'block';
+                status.className = 'status waiting';
+                status.innerHTML = '📱 QR Code Ready - Scan with WhatsApp!';
+                
+                // Clear previous QR code
+                document.getElementById('qrcode').innerHTML = '';
+                
+                // Create new QR code
+                const qrcode = new QRCode(document.getElementById('qrcode'), {
+                    text: qrData,
+                    width: 280,
+                    height: 280,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+                
+                qrGenerated = true;
             }
 
-            function updateStatus(connected) {
+            function updateStatus(connected, user) {
                 const status = document.getElementById('status');
                 const qrContainer = document.getElementById('qrContainer');
                 
                 if (connected) {
                     status.className = 'status connected';
-                    status.innerHTML = '✅ Connected to WhatsApp!';
+                    status.innerHTML = '✅ Connected to WhatsApp!' + (user ? ` as ${user}` : '');
                     qrContainer.style.display = 'none';
+                    qrGenerated = false;
                 } else {
                     status.className = 'status disconnected';
                     status.innerHTML = '❌ Disconnected - Waiting for QR code...';
                 }
             }
 
-            // Check status every 3 seconds
+            // Check status every 2 seconds
             function checkStatus() {
                 fetch('/status')
                     .then(response => response.json())
                     .then(data => {
                         if (data.connected) {
-                            updateStatus(true);
+                            updateStatus(true, data.user);
                         } else if (data.qr) {
                             updateQRCode(data.qr);
                             updateStatus(false);
@@ -161,39 +230,45 @@ app.get('/', (req, res) => {
                     })
                     .catch(error => {
                         console.error('Error checking status:', error);
+                        document.getElementById('status').innerHTML = '❌ Error connecting to server';
                     });
             }
 
-            // Load QR code library and start checking status
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
-            script.onload = function() {
-                checkStatus();
-                setInterval(checkStatus, 3000);
-            };
-            document.head.appendChild(script);
+            // Start checking status
+            checkStatus();
+            setInterval(checkStatus, 2000);
         </script>
     </body>
     </html>
     `);
 });
 
-// Status endpoint
+// Status API endpoint
 app.get('/status', (req, res) => {
     res.json({
-        connected: client.info ? true : false,
+        connected: isConnected,
         qr: currentQR,
-        user: client.info ? client.info.pushname : null,
+        user: userInfo,
         timestamp: new Date().toISOString()
+    });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        connected: isConnected,
+        qr_available: !!currentQR,
+        uptime: Math.floor(process.uptime())
     });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web server running on port ${PORT}`);
-    console.log(`📱 Open http://localhost:${PORT} in your browser to scan QR code`);
+    console.log(`📱 Share this URL with anyone to scan QR code remotely`);
 });
 
-console.log('🚀 Starting WhatsApp Bot...');
+console.log('🚀 Starting WhatsApp Bot - Remote Access Enabled...');
 
 // Initialize WhatsApp client
 const client = new Client({
@@ -208,25 +283,24 @@ const client = new Client({
             '--no-zygote',
             '--single-process',
             '--disable-gpu',
-            '--max-old-space-size=256'
+            '--max-old-space-size=512'
         ]
     }
 });
 
 client.on('qr', async (qr) => {
-    console.log('📱 QR code received');
+    console.log('📱 QR code received - Ready for remote scanning');
     currentQR = qr;
-    
-    // Also show in terminal as backup
-    const qrcodeTerminal = require('qrcode-terminal');
-    console.log('\n📱 Terminal QR Code (backup):');
-    qrcodeTerminal.generate(qr, { small: false });
+    isConnected = false;
+    userInfo = null;
 });
 
 client.on('ready', () => {
-    console.log('✅ WhatsApp Bot is ready!');
+    console.log('✅ WhatsApp Bot is ready and connected!');
     console.log('👤 Connected as:', client.info.pushname);
-    currentQR = null; // Clear QR code since we're connected
+    currentQR = null;
+    isConnected = true;
+    userInfo = client.info.pushname;
 });
 
 client.on('authenticated', () => {
@@ -237,11 +311,12 @@ client.on('authenticated', () => {
 client.on('disconnected', (reason) => {
     console.log('❌ Disconnected:', reason);
     currentQR = null;
+    isConnected = false;
+    userInfo = null;
 });
 
-// MESSAGE HANDLER
+// MESSAGE HANDLER (same as before)
 client.on('message', async (message) => {
-    // Ignore status broadcasts
     if (message.from === 'status@broadcast') return;
     
     console.log(`💬 Message from ${message.from}: ${message.body?.substring(0, 50) || 'Media message'}...`);
@@ -284,7 +359,7 @@ I'll respond automatically!`);
     }
 });
 
-// GREETING DETECTION FUNCTION
+// All the helper functions remain the same...
 function isGreeting(message) {
     const greetings = [
         'hello', 'hi', 'hey', 'hola', 'hey there', 'hi there',
@@ -298,23 +373,16 @@ function isGreeting(message) {
     return greetings.some(greeting => messageLower.includes(greeting));
 }
 
-// LOCATION QUESTION DETECTION
 function isLocationQuestion(message) {
     const locationPhrases = [
-        'where are you',
-        'where are u',
-        'your location',
-        'where is the bot',
-        'are you here',
-        'where do you live',
-        'your position'
+        'where are you', 'where are u', 'your location',
+        'where is the bot', 'are you here', 'where do you live', 'your position'
     ];
     
     const messageLower = message.toLowerCase();
     return locationPhrases.some(phrase => messageLower.includes(phrase));
 }
 
-// GREETING RESPONSE HANDLER
 async function handleGreeting(message, content) {
     const greetings = [
         '👋 Hello there! How can I help you today?',
@@ -325,10 +393,7 @@ async function handleGreeting(message, content) {
         '🚀 Hey! Welcome!'
     ];
     
-    // Select random greeting response
     const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
-    
-    // Add time-based greetings
     const hour = new Date().getHours();
     let timeGreeting = '';
     
@@ -336,13 +401,10 @@ async function handleGreeting(message, content) {
     else if (hour < 18) timeGreeting = '☀️ Good afternoon!';
     else timeGreeting = '🌙 Good evening!';
     
-    // Send response
     await message.reply(`${timeGreeting} ${randomGreeting}`);
-    
     console.log('✅ Greeting response sent');
 }
 
-// LOCATION QUESTION HANDLER
 async function handleLocationQuestion(message) {
     const responses = [
         "📍 I'm running in the cloud! A virtual assistant always available! ☁️",
@@ -357,12 +419,9 @@ async function handleLocationQuestion(message) {
     console.log('📍 Location response sent');
 }
 
-// FUNCTION TO SAVE VIEW-ONCE MEDIA
 async function saveViewOnceMedia(message) {
     try {
         console.log('💾 Saving view-once media...');
-        
-        // Download the media
         const media = await message.downloadMedia();
         
         if (media) {
@@ -371,11 +430,8 @@ async function saveViewOnceMedia(message) {
             const fileExtension = getFileExtension(media.mimetype);
             const filename = `${mediaDir}/view_once_${sender}_${timestamp}.${fileExtension}`;
             
-            // Save the file
             fs.writeFileSync(filename, media.data, 'base64');
             console.log(`✅ Saved view-once media: ${filename}`);
-            
-            // Send confirmation
             await message.reply('📸 View-once media saved successfully! ✅');
         }
     } catch (error) {
@@ -384,17 +440,10 @@ async function saveViewOnceMedia(message) {
     }
 }
 
-// Function to get file extension
 function getFileExtension(mimetype) {
     const extensions = {
-        'image/jpeg': 'jpg',
-        'image/png': 'png',
-        'image/gif': 'gif',
-        'image/webp': 'webp',
-        'video/mp4': 'mp4',
-        'video/avi': 'avi',
-        'video/mov': 'mov',
-        'video/3gp': '3gp'
+        'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+        'video/mp4': 'mp4', 'video/avi': 'avi', 'video/mov': 'mov', 'video/3gp': '3gp'
     };
     return extensions[mimetype] || 'bin';
 }
@@ -409,4 +458,4 @@ process.on('SIGINT', async () => {
     process.exit(0);
 });
 
-console.log('🤖 Bot started - Ready for greetings and media saving!');
+console.log('🤖 Remote WhatsApp Bot started! Share the URL to connect.');
