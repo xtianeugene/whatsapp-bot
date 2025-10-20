@@ -108,6 +108,14 @@ app.get('/', (req, res) => {
                 margin: 10px 0;
                 padding-left: 10px;
             }
+            .share-link {
+                background: rgba(255,255,255,0.2);
+                padding: 10px;
+                border-radius: 5px;
+                margin: 10px 0;
+                word-break: break-all;
+                font-size: 0.9em;
+            }
             @keyframes pulse {
                 0% { transform: scale(1); }
                 50% { transform: scale(1.02); }
@@ -134,12 +142,10 @@ app.get('/', (req, res) => {
             <div class="qr-container" id="qrContainer" style="display: none;">
                 <h2>📱 Scan QR Code</h2>
                 <div id="qrcode"></div>
-                <p style="margin-top: 15px; font-size: 0.9em;">
-                    <strong>Share this link:</strong><br>
-                    <span style="background: rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 5px; word-break: break-all;">
-                        ${baseUrl}
-                    </span>
+                <p style="margin-top: 15px;">
+                    <strong>Share this link:</strong>
                 </p>
+                <div class="share-link" id="shareUrl">${baseUrl}</div>
             </div>
 
             <div class="instructions">
@@ -205,7 +211,7 @@ app.get('/', (req, res) => {
                 
                 if (connected) {
                     status.className = 'status connected';
-                    status.innerHTML = '✅ Connected to WhatsApp!' + (user ? ` as ${user}` : '');
+                    status.innerHTML = '✅ Connected to WhatsApp!' + (user ? ' as ' + user : '');
                     qrContainer.style.display = 'none';
                     qrGenerated = false;
                 } else {
@@ -315,7 +321,7 @@ client.on('disconnected', (reason) => {
     userInfo = null;
 });
 
-// MESSAGE HANDLER (same as before)
+// MESSAGE HANDLER
 client.on('message', async (message) => {
     if (message.from === 'status@broadcast') return;
     
@@ -359,7 +365,7 @@ I'll respond automatically!`);
     }
 });
 
-// All the helper functions remain the same...
+// GREETING DETECTION FUNCTION
 function isGreeting(message) {
     const greetings = [
         'hello', 'hi', 'hey', 'hola', 'hey there', 'hi there',
@@ -373,6 +379,7 @@ function isGreeting(message) {
     return greetings.some(greeting => messageLower.includes(greeting));
 }
 
+// LOCATION QUESTION DETECTION
 function isLocationQuestion(message) {
     const locationPhrases = [
         'where are you', 'where are u', 'your location',
@@ -383,6 +390,7 @@ function isLocationQuestion(message) {
     return locationPhrases.some(phrase => messageLower.includes(phrase));
 }
 
+// GREETING RESPONSE HANDLER
 async function handleGreeting(message, content) {
     const greetings = [
         '👋 Hello there! How can I help you today?',
@@ -405,6 +413,7 @@ async function handleGreeting(message, content) {
     console.log('✅ Greeting response sent');
 }
 
+// LOCATION QUESTION HANDLER
 async function handleLocationQuestion(message) {
     const responses = [
         "📍 I'm running in the cloud! A virtual assistant always available! ☁️",
@@ -419,6 +428,7 @@ async function handleLocationQuestion(message) {
     console.log('📍 Location response sent');
 }
 
+// FUNCTION TO SAVE VIEW-ONCE MEDIA
 async function saveViewOnceMedia(message) {
     try {
         console.log('💾 Saving view-once media...');
@@ -440,6 +450,7 @@ async function saveViewOnceMedia(message) {
     }
 }
 
+// Function to get file extension
 function getFileExtension(mimetype) {
     const extensions = {
         'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
